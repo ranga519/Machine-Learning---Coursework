@@ -1,0 +1,302 @@
+---
+title: "UOL ML coursework"
+output: html_notebook
+---
+
+
+```{r}
+install.packages("psych")
+install.packages("corrplot") 
+install.packages("ggfortify") 
+install.packages("Metrics") 
+install.packages("caret")
+install.packages("randomForest")
+install.packages("gridExtra")
+install.packages("gridExtra")
+
+```
+
+
+```{r}
+# import libraries
+library(ggplot2) # visuals
+library(psych)
+library(corrplot)
+library(tidyverse) # data wrangling
+library(ggfortify) # PCA visuals
+
+library(cluster)
+library(dplyr)
+library(magrittr)
+library(caret)
+library(e1071)
+library(randomForest)
+library(gridExtra)
+
+
+```
+
+
+
+
+
+
+```{r}
+#R code to import and prepare the EWCS dataset
+
+ewcs=read.table("EWCS_2016.csv",sep=",",header=TRUE)
+
+ewcs[,][ewcs[, ,] == -999] <- NA
+
+kk=complete.cases(ewcs)
+
+ewcs=ewcs[kk,]
+```
+
+#EDA
+
+
+```{r}
+summary(ewcs) # lets look at the summary of the data set.
+```
+
+
+
+```{r}
+
+ggplot(gather(ewcs), aes(value)) + 
+  geom_histogram(stat="count",color="black", fill="white")+
+  facet_wrap(~key, scales = 'free_x') + theme(text = element_text(size = 29,face="bold")) 
+options(repr.plot.width=12, repr.plot.height=9) # 
+
+
+# distribution of age 
+#ggplot(ewcs, aes(x=Q2b)) + geom_histogram(stat="count",color="black", fill="#EFC000FF")
+
+
+
+ggplot(ewcs, aes(x=Q2b)) + 
+    geom_histogram(aes(y =..density..),
+                   colour = "black", 
+                   fill = "#EFC000FF") +
+stat_function(fun = dnorm, args = list(mean = mean(ewcs$Q2b), sd = sd(ewcs$Q2b)))+ theme(text = element_text(size = 16,face="bold")) 
+options(repr.plot.width=12, repr.plot.height=9)
+
+
+
+
+```
+
+
+
+```{r}
+#@title Lets remove gender and age
+questionaire = ewcs[, 3:11] # exclude Q2a gender and Q2b age
+scaled_df = scale(ewcs) # scale for kmeans and pca
+```
+
+
+
+
+
+
+```{r}
+# Let's look at the correlation between variables
+corPlot(scaled_df, cex = 0.5)+ theme(axis.text = element_text(size = 14,face="bold")) 
+```
+
+
+
+```{r}
+#  Perform PCA and draw scree plot
+prcomps = prcomp(scaled_df)
+summary(prcomps) #
+
+var_explained <- data.frame(PC= paste0("PC",1:11),
+                               var_explained=(prcomps$sdev)^2/sum((prcomps$sdev)^2)*100)
+
+var_explained$PC <- factor(var_explained$PC,levels = unique(var_explained$PC),ordered = T)
+head(var_explained)
+
+
+var_explained %>%
+  ggplot(aes(x=PC,y=var_explained))+
+  geom_col(stat="identity", fill = "cornflowerblue")+
+  labs(title="Scree plot: PCA on scaled data",y='Explained Variance Percentage(%)',x='Principal Componenets',size=14) + theme(text = element_text(size = 14,face="bold")) 
+
+```
+
+#let's plot biplot
+
+```{r}
+library(factoextra)
+
+fviz_pca_biplot(prcomps, repel = FALSE,geom = c("point"),
+                col.var = "black", # Variables color
+                col.ind = 'cyan3',  # Individuals color
+                xlab='PC1',ylab='PC2'
+                ) + theme(text = element_text(size = 14,face="bold"))
+
+```
+
+#K-Means
+
+
+
+```{r}
+
+set.seed(69)
+# Compute k-means Elbow plot
+fviz_nbclust(scaled_df, kmeans, method = "wss") + theme(text = element_text(size = 14,face="bold"))
+
+
+final1 <- kmeans(scaled_df, 3, nstart = 25)
+print(final1)
+
+final2 <- kmeans(scaled_df, 2, nstart = 25)
+print(final2)
+
+
+fviz_cluster(final1, data = scaled_df,geom = c("point"),xlab='PC1',ylab='PC2')+ theme(text = element_text(size = 14,face="bold"))
+
+
+fviz_cluster(final2, data = scaled_df,geom = c("point"),xlab='PC1',ylab='PC2')+ theme_bw() + theme(text = element_text(size = 14,face="bold"))
+
+
+```
+
+
+
+
+```{r}
+
+
+
+df2 <- ewcs %>%
+  group_by(Cluster) %>%
+  summarise_all("mean") 
+head(df2)
+
+```
+
+
+```{r}
+
+
+ewcs$Cluster <- factor(final1$cluster)
+ewcs
+```
+
+
+```{r}
+ewcs$Q2a[ewcs$Q2a == 2] <- "Female"
+ewcs$Q2a[ewcs$Q2a == 1] <- "male"
+
+df3 <- ewcs %>%
+  group_by(Q2a, Cluster) %>%
+  summarise(counts = n()) 
+head(df3, 4)
+
+
+
+
+
+
+
+p <- ggplot(df3, aes(x = Cluster, y = counts)) +
+  geom_bar(
+    aes(color = Q2a, fill = Q2a),
+    stat = "identity", position = position_dodge(0.8),
+    width = 0.7
+    ) +
+  scale_color_manual(values = c("#0073C2FF", "#EFC000FF","darkgreen"))+
+  scale_fill_manual(values = c("#0073C2FF", "#EFC000FF","darkgreen"))
+p+ theme(text = element_text(size = 14,face="bold"))
+
+
+
+```
+
+
+
+
+```{r}
+ggplot(ewcs,xlab='ddd') +
+  stat_density(aes(x=Q2b, fill=Cluster),position="identity",alpha=0.5) + xlab("Age(Q2b) Distribution") + ylab("Density")+ theme_bw() + theme(text = element_text(size = 14,face="bold"))
+
+```
+
+
+```{r}
+library(gridExtra)
+test <- ggplot(ewcs, aes(x = Cluster, y = Q87a)) + 
+  geom_boxplot() + theme_classic()+ theme(text = element_text(size = 14,face="bold"))
+
+
+testb <- ggplot(ewcs, aes(x = Cluster, y = Q87c)) + 
+  geom_boxplot() + theme_classic()+ theme(text = element_text(size = 14,face="bold"))
+
+
+testc <- ggplot(ewcs, aes(x = Cluster, y = Q90a)) + 
+  geom_boxplot() + theme_classic()+ theme(text = element_text(size = 14,face="bold"))
+
+
+testd <- ggplot(ewcs, aes(x = Cluster, y = Q90b)) + 
+  geom_boxplot() + theme_classic()+ theme(text = element_text(size = 14,face="bold"))
+
+grid.arrange(test, testb, testc, testd, nrow=1)+ theme(text = element_text(size = 14,face="bold"))
+
+```
+
+```{r}
+#less add a mean column for both question categories.
+
+
+ewcs$Q87_Mean <- (ewcs$Q87a + ewcs$Q87b + ewcs$Q87c + ewcs$Q87d + ewcs$Q87e)/5
+ewcs$Q90_Mean <- (ewcs$Q90a + ewcs$Q90b + ewcs$Q90c)/3
+ewcs
+
+
+
+
+
+
+```
+
+```{r}
+
+p1<-ggplot(ewcs, aes(x=Cluster, y=Q87_Mean, fill=Cluster)) +
+  geom_boxplot() + scale_fill_brewer(palette="Reds") + theme_classic() + theme(text = element_text(size = 14,face="bold"))
+p1 
+
+
+
+p2<-ggplot(ewcs, aes(x=Cluster, y=Q90_Mean, fill=Cluster)) +
+  geom_boxplot()+ scale_fill_brewer(palette="Reds") + theme_classic() + theme(text = element_text(size = 14,face="bold"))
+p2 
+
+
+grid.arrange(p1,p2, nrow=1)+ theme(text = element_text(size = 14,face="bold")) + theme(text = element_text(size = 14,face="bold"))
+```
+
+
+
+
+
+
+```{r}
+ewcs
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

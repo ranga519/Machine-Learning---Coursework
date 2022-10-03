@@ -1,0 +1,371 @@
+---
+title: "ML coursework part 3"
+output: html_notebook
+---
+
+```{r}
+# import libraries
+library(ggplot2) # visuals
+library(psych)
+library(corrplot)
+library(tidyverse) # data wrangling
+library(ggfortify) # PCA visuals
+
+library(cluster)
+library(dplyr)
+library(magrittr)
+library(caret)
+library(e1071)
+library(randomForest)
+library(gridExtra)
+library(gbm)
+library(e1071)
+library(caTools)
+library(class)
+library(MASS)
+library(yardstick)
+```
+
+
+
+
+```{r}
+#let's look at the data
+#R code to import the bank marketing dataset
+bank=read.table("bank.csv",sep=";",header=TRUE)
+bank
+```
+
+```{r}
+library(vtable)
+#Summary of dataframe
+summary(bank)
+#check for missing values
+sum(is.na(bank))
+
+```
+
+```{r}
+#Correlation heatmap
+NumerCols =  unlist(lapply(bank, is.numeric))   #
+Corr = cor(bank[,NumerCols])
+#heatmap(x=Corr, symm=T, col=colorRampPalette(c("blue", "white", "red"))(40))
+corPlot(Corr, cex = 0.8)+ theme(text = element_text(size = 25)) + scale_x_continuous("Corr", labels = as.character(Corr), breaks = Corr)
+```
+#checking for outliers
+
+```{r}
+boxplot(bank[,NumerCols])
+stripchart(bank[,NumerCols], vertical = TRUE, method = "jitter",
+           pch = 19, add = TRUE, col = 1:length(levels(chickwts$feed)))
+```
+
+
+#Getting rid of Outliers
+
+
+
+```{r}
+bank<-bank[!bank$balance>3000,]
+boxplot(bank[,NumerCols])
+stripchart(bank[,NumerCols], vertical = TRUE, method = "jitter",
+           pch = 19, add = TRUE, col = 1:length(levels(chickwts$feed)))
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+#Pairwise Comparisson of numeric variables
+lr = function(x,y){
+  points(x,y)
+  abline(lm(y ~ x),col = 'blue')
+}
+Nummeric_Var <-  select_if(bank, is.numeric)
+pairs(Nummeric_Var,panel=lr)  # scatter plot matrix for selected features
+```
+#
+
+
+```{r}
+
+df3 <- bank %>%
+  group_by(marital, y) %>%
+  summarise(counts = n()) 
+head(df3, 4)
+
+p <- ggplot(df3, aes(x = marital, y = counts)) +
+  geom_bar(
+    aes(color = y, fill = y),
+    stat = "identity", position = position_dodge(0.8),
+    width = 0.7
+    ) +
+  scale_color_manual(values = c("#0073C2FF", "#EFC000FF","darkgreen"))+
+  scale_fill_manual(values = c("#0073C2FF", "#EFC000FF","darkgreen"))
+p+ theme(text = element_text(size = 14,face="bold"))
+
+
+```
+
+#Pre-Processing data
+
+
+
+
+```{r}
+bank.y = bank['y'] #separating Target variable
+bank.y$y<-ifelse(bank.y$y=="yes",1,0) # set categorical varible to binary
+bank.y
+
+bank <- subset(bank, select = -c(y,duration)) # drop y and duration
+bank
+dummy <- dummyVars(" ~ .", data=bank) # One hot encoding
+df_with_dummy <- data.frame(predict(dummy, newdata = bank))
+
+df_with_dummy$y <- bank.y$y # adding back target variables after encoding categorical variables
+df_with_dummy
+```
+
+
+
+
+```{r}
+
+set.seed(69)
+n_row <- sample(1:nrow(df_with_dummy), 0.8*nrow(df_with_dummy)) #train test split 80-20
+train = df_with_dummy[n_row,]
+test = df_with_dummy[-n_row,]
+dim(train)
+dim(test)
+```
+
+
+
+
+#logistic regression
+
+```{r}
+
+# Fiting the model
+model_lr <- glm(y ~.-pdays, data = train, family = binomial)
+
+# predictions on train
+probabilities_train <- model_lr %>% predict(train, type = "response")
+predicted.classes_train <- ifelse(probabilities_train > 0.5, 1, 0)
+
+
+# predictions on test
+probabilities_test <- model_lr %>% predict(test, type = "response")
+predicted.classes_test <- ifelse(probabilities_test > 0.5, 1, 0)
+# Model accuracy
+mean(predicted.classes_test == test$y)
+mean(predicted.classes_train == train$y)
+
+
+
+```
+
+
+```{r}
+cm_train <- confusionMatrix(as.factor(predicted.classes_train), as.factor(train$y), mode = "everything", positive="1")
+cm_train
+cm_test <- confusionMatrix(as.factor(predicted.classes_test), as.factor(test$y), mode = "everything", positive="1")
+cm_test 
+```
+
+
+
+```{r}
+
+
+plt_lr <- as.data.frame(cm_test$table)
+plt_lr$Prediction <- factor(plt_lr$Prediction, levels=rev(levels(plt_lr$Prediction)))
+
+ggplot(plt_lr, aes(Prediction,Reference, fill= Freq)) +
+        geom_tile() + geom_text(aes(label=Freq),vjust = .8, fontface  = "bold", alpha = 1,size = 8) + 
+        scale_fill_gradient(low="#EFC000FF", high="#0073C2FF") +
+        labs(x = "Real",y = "Prediction") + theme(text = element_text(size = 17,face="bold"), plot.title = element_text(hjust = 0.5))  +labs(title="Logistic Regression",center=TRUE)
+
+```
+
+
+
+
+#Random trees method
+
+```{r}
+
+
+# Fiting the model
+model_rf <- randomForest(y ~.-pdays, data = train, proximity=TRUE)
+
+# predictions on train
+probabilities_train_rf <- model_rf %>% predict(train, type = "response")
+predicted.classes_train_rf <- ifelse(probabilities_train_rf > 0.5, 1, 0)
+
+
+# predictions on test
+probabilities_test_rf <- model_rf %>% predict(test, type = "response")
+predicted.classes_test_rf <- ifelse(probabilities_test_rf > 0.5, 1, 0)
+# Model accuracy
+mean(predicted.classes_test_rf == test$y)
+mean(predicted.classes_train_rf == train$y)
+
+
+
+
+
+
+
+```
+
+
+```{r}
+cm_train_rf <- confusionMatrix(as.factor(predicted.classes_train_rf), as.factor(train$y), mode = "everything", positive="1")
+cm_train_rf
+cm_test_rf <- confusionMatrix(as.factor(predicted.classes_test_rf), as.factor(test$y), mode = "everything", positive="1")
+cm_test_rf
+```
+
+
+
+
+
+```{r}
+plt_rf <- as.data.frame(cm_test_rf$table)
+plt_rf$Prediction <- factor(plt_rf$Prediction, levels=rev(levels(plt_rf$Prediction)))
+
+ggplot(plt_rf, aes(Prediction,Reference, fill= Freq)) +
+        geom_tile() + geom_text(aes(label=Freq),vjust = .8, fontface  = "bold", alpha = 1,size = 8) +
+        scale_fill_gradient(low="#EFC000FF", high="#0073C2FF") +
+        labs(x = "Real",y = "Prediction") + theme(text = element_text(size = 17,face="bold"))+ theme(text = element_text(size = 17,face="bold"), plot.title = element_text(hjust = 0.5))  +labs(title="Random Forest Classifier",center=TRUE)
+```
+
+
+#KNN
+
+
+```{r}
+
+# Scale fearures
+#train_scaled <- scale(train_cl[, 1:4])
+#test_scaleed <- scale(test_cl[, 1:4])
+
+# Test on training dataset
+classifier_knn_train <- knn(train = train,
+                      test = train,
+                      cl = train$y,
+                      k = 10)
+
+# Test on testing dataset
+classifier_knn_test<- knn(train = train,
+                      test = test,
+                      cl = train$y,
+                      k = 10)
+
+  
+# Confusiin Matrix train
+cm_knn_train <- table(train$y, classifier_knn_train)
+cm_knn_train
+
+# Confusiin Matrix test
+cm_knn_test <- table(test$y, classifier_knn_test)
+cm_knn_test
+
+
+
+
+# best k value = 10
+
+
+
+
+```
+
+
+
+```{r}
+
+cm_train_knn <- confusionMatrix(as.factor(classifier_knn_train), as.factor(train$y), mode = "everything", positive="1") # train set cm
+cm_train_knn
+cm_test_knn <-confusionMatrix(as.factor(classifier_knn_test), as.factor(test$y), mode = "everything", positive="1") # test set cm
+cm_test_knn
+
+
+```
+
+
+
+
+```{r}
+plt_knn <- as.data.frame(cm_test_knn$table)
+plt_knn$Prediction <- factor(plt_knn$Prediction, levels=rev(levels(plt_knn$Prediction)))
+
+ggplot(plt_knn, aes(Prediction,Reference, fill= Freq)) +
+        geom_tile() + geom_text(aes(label=Freq),vjust = .8, fontface  = "bold", alpha = 1,size = 8) +
+        scale_fill_gradient(low="#EFC000FF", high="#0073C2FF") +
+        labs(x = "Real",y = "Prediction") + theme(text = element_text(size = 17,face="bold"), plot.title = element_text(hjust = 0.5))  +labs(title="K-nearest neighbors(KNN) ",center=TRUE)
+```
+
+
+#lda
+
+
+
+```{r}
+# Fiting the model
+model_lda <- lda(y ~.-pdays, data = train)
+
+# predictions on train
+probabilities_train_lda <- model_lr %>% predict(train, type = "response")
+predicted.classes_train_lda  <- ifelse(probabilities_train_lda  > 0.5, 1, 0)
+
+
+# predictions on test
+probabilities_test_lda  <- model_lr %>% predict(test, type = "response")
+predicted.classes_test_lda  <- ifelse(probabilities_test_lda  > 0.5, 1, 0)
+# Model accuracy
+mean(predicted.classes_test_lda  == test$y)
+mean(predicted.classes_train_lda  == train$y)
+```
+
+
+
+```{r}
+cm_train_lda <- confusionMatrix(as.factor(predicted.classes_train_lda), as.factor(train$y), mode = "everything", positive="1") # train set cm
+cm_train_lda
+cm_test_lda <-confusionMatrix(as.factor(predicted.classes_test_lda), as.factor(test$y), mode = "everything", positive="1")   # test set cm
+cm_test_lda
+```
+
+
+
+
+
+
+
+```{r}
+plt_lda <- as.data.frame(cm_test_lda$table)
+plt_lda$Prediction <- factor(plt_lda$Prediction, levels=rev(levels(plt_lda$Prediction)))
+
+ggplot(plt_lda, aes(Prediction,Reference, fill= Freq)) +
+        geom_tile() + geom_text(aes(label=Freq),vjust = .8, fontface  = "bold", alpha = 1,size = 8) +
+        scale_fill_gradient(low="#EFC000FF", high="#0073C2FF") +
+        labs(x = "Real",y = "Prediction") + theme(text = element_text(size = 17,face="bold"))+ theme(text = element_text(size = 17,face="bold"), plot.title = element_text(hjust = 0.5))  +labs(title="Linear Discriminant Analysis Classifier(LDA) ",center=TRUE)
+```
+
+
+

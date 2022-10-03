@@ -1,0 +1,375 @@
+---
+title: "ML coursework part 2"
+output: html_notebook
+---
+
+
+```{r}
+# import libraries
+library(ggplot2) # visuals
+library(psych)
+library(corrplot)
+library(tidyverse) # data wrangling
+library(ggfortify) # PCA visuals
+
+library(cluster)
+library(dplyr)
+library(magrittr)
+library(caret)
+library(e1071)
+library(randomForest)
+library(gridExtra)
+library(gbm)
+```
+
+```{r}
+#R code to import and prepare the student performance dataset
+
+school1=read.table("student-mat.csv",sep=";",header=TRUE)
+
+school2=read.table("student-por.csv",sep=";",header=TRUE)
+
+schools=merge(school1,school2,by=c("school","sex","age","address","famsize","Pstatus","Medu","Fedu","Mjob","Fjob","reason","nursery","internet"))
+
+
+
+```
+
+```{r}
+summary(schools)
+```
+
+
+```{r}
+schools
+```
+
+
+No visbile missing vlaues, after merging
+
+#Data Pre-processing
+
+```{r}
+df = schools[,!(names(schools) %in% c("G1.y","G2.y","G1.x","G2.x"))] #getting rid of G2 and G1
+```
+
+
+
+#EDA
+
+
+```{r}
+NumerCols =  unlist(lapply(df, is.numeric))   #
+Corr = cor(df[,NumerCols])
+#heatmap(x=Corr, symm=T, col=colorRampPalette(c("blue", "white", "red"))(40))
+corPlot(Corr,cex = 0.5)+ theme(axis.text = element_text(size = 14,face="bold")) 
+
+
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+
+library(corrplot)
+corrplot(Corr, type = "upper", order = "hclust",col=col(200), 
+         tl.col = "black", tl.srt = 90,tl.cex = 1.4, tl.offset = 1.3,sig.level = 0.01)+ theme(axis.text = element_text(size = 14,face="bold"))
+
+
+pairs(df[1:500, c('G3.y','G3.x', 'age', 'absences.y', 'absences.x','Fedu', 'Medu')],cex.labels=2, pch=19, cex = 0.8, cex.axis = 2)  # scatter plot matrix for selected features
+```
+
+
+```{r}
+
+# Change box plot line colors by groups
+p1<-ggplot(df, aes(x=factor(Medu), y=G3.x, color=factor(Medu))) +
+  geom_boxplot()
+p1 + theme(axis.text = element_text(size = 14,face="bold")) 
+
+p2<-ggplot(df, aes(x=factor(Medu), y=G3.y, color=factor(Medu))) +
+  geom_boxplot()+ theme(axis.text = element_text(size = 14,face="bold")) 
+p2
+
+
+```
+
+
+
+
+```{r}
+
+
+
+
+
+
+```
+
+
+
+
+#setting necessary matrics
+
+
+
+```{r}
+library(Metrics)
+
+#R^2
+Rsq = function(y_real,y_pred){
+  cor(y_real,y_pred)^2
+}
+```
+
+```{r}
+
+```
+
+
+```{r}
+dummy <- dummyVars(" ~ .", data=df) # One hot encoding
+df_with_dummy <- data.frame(predict(dummy, newdata = df))
+
+set.seed(69)
+n_row <- sample(1:nrow(df_with_dummy), 0.8*nrow(df_with_dummy)) #train test split 80-20
+train = df_with_dummy[n_row,]
+test = df_with_dummy[-n_row,]
+dim(train)
+dim(test)
+```
+
+```{r}
+trainG3.x = train['G3.x'] #math
+trainG3.y = train['G3.y'] #Portugees
+
+testG3.x = test['G3.x'] #math
+testG3.y = test['G3.y'] #Portugees
+```
+
+
+#Linear Regression Model - Baseline
+
+
+
+
+```{r}
+
+#specify the cross-validation method
+ctrl <- trainControl(method = "cv", number = 5)
+
+#fit a regression model 
+model_cv_lm.x <- train(G3.x ~., data = df_with_dummy, method = "lm", trControl = ctrl)#math
+model_cv_lm.y <- train(G3.y ~., data = df_with_dummy, method = "lm", trControl = ctrl)#Portugees
+
+#Summary of k-fold CV               
+
+model_cv_lm.x$resample
+model_cv_lm.y$resample
+
+```
+
+
+```{r}
+
+(m1_lr <- lm(G3.x ~., data=train))    # Model 1 predecting final Math grade G3.x
+(m2_lr <- lm(G3.y ~., data=train))   # Model 2 predecting final Portugeese grade G3.y
+```
+
+
+
+
+
+
+```{r}
+pred1_lr <- predict(m1_lr, newdata = test) # prediting on test set
+pred2_lr <- predict(m2_lr, newdata = test) # prediting on test set
+
+
+
+rmse(pred1_lr, testG3.x$G3.x) #rmse
+rmse(pred2_lr, testG3.y$G3.y)
+
+Rsq(pred1_lr, testG3.x$G3.x) #R^2
+Rsq(pred2_lr, testG3.y$G3.y)
+
+mae(pred1_lr, testG3.x$G3.x) #MAE
+mae(pred2_lr, testG3.y$G3.y)
+```
+
+
+#Lasso Rgression
+
+```{r}
+
+#specify the cross-validation method
+ctrl <- trainControl(method = "cv", number = 5)
+
+#fit a regression model 
+model_cv_lasso.x <- train(G3.x ~., data = df_with_dummy, method = "lasso", trControl = ctrl)#math
+model_cv_lasso.y <- train(G3.y ~., data = df_with_dummy, method = "lasso", trControl = ctrl)#Portugees
+
+#Summary of k-fold CV               
+
+model_cv_lasso.x$resample
+model_cv_lasso.y$resample
+```
+
+
+
+
+```{r}
+library(glmnet)
+
+#perform k-fold cross-validation to find optimal lambda value
+cv_model.x <- cv.glmnet(data.matrix(train), train$G3.x, alpha = 1)
+cv_model.y <- cv.glmnet(data.matrix(train), train$G3.y, alpha = 1)
+
+
+#find optimal lambda value that minimizes test MSE
+best_lambda.x <- cv_model.x$lambda.min
+best_lambda.y <- cv_model.y$lambda.min
+
+best_lambda.x
+best_lambda.y
+
+
+#produce plot of test MSE by lambda value
+plot(cv_model.x)
+```
+
+
+
+
+
+
+#Support Vector Machines regression
+
+```{r}
+
+
+
+#specify the cross-validation method
+ctrl <- trainControl(method = "cv", number = 5)
+
+#fit a regression model 
+model_cv_svm.x <- train(G3.x ~., data = df_with_dummy, method = "svmLinear", trControl = ctrl)#math
+model_cv_svm.y <- train(G3.y ~., data = df_with_dummy, method = "svmLinear", trControl = ctrl)#Portugees
+
+#Summary of k-fold CV               
+
+model_cv_svm.x$resample
+model_cv_svm.y$resample
+```
+
+
+```{r}
+(m1_svm <- svm(G3.x ~., data=train))    # Model 1 predecting final Math grade G3.x
+(m2_svm <- svm(G3.y ~., data=train))   # Model 2 predecting final Portugeese grade G3.y
+```
+
+```{r}
+pred1_svm <- predict(m1_svm, newdata = test)
+pred2_svm <- predict(m2_svm, newdata = test)
+
+
+
+rmse(pred1_svm, testG3.x$G3.x)
+rmse(pred2_svm, testG3.y$G3.y)
+
+Rsq(pred1_svm, testG3.x$G3.x)
+Rsq(pred2_svm, testG3.y$G3.y)
+
+mae(pred1_rf, testG3.x$G3.x)
+mae(pred2_rf, testG3.y$G3.y)
+
+
+```
+
+
+#Random Forest
+
+```{r}
+
+
+
+#specify the cross-validation method
+ctrl <- trainControl(method = "cv", number = 5)
+
+#fit a regression model 
+model_cv_rf.x <- train(G3.x ~., data = df_with_dummy, method = "ranger", trControl = ctrl)#math
+model_cv_rf.y <- train(G3.y ~., data = df_with_dummy, method = "ranger", trControl = ctrl)#Portugees
+
+#Summary of k-fold CV               
+
+model_cv_rf.x$resample
+model_cv_rf.y$resample
+```
+
+```{r}
+(m1_rf <- randomForest(G3.x ~., data=train, proximity=TRUE))    # Model 1 predecting final Math grade G3.x
+(m2_rf <- randomForest(G3.y ~., data=train, proximity=TRUE))   # Model 2 predecting final Portugeese grade G3.y
+```
+
+```{r}
+pred1_rf <- predict(m1_rf, newdata = test)
+pred2_rf <- predict(m2_rf, newdata = test)
+
+rmse(pred1_rf, testG3.x$G3.x)
+rmse(pred2_rf, testG3.y$G3.y)
+
+Rsq(pred1_rf, testG3.x$G3.x)
+Rsq(pred2_rf, testG3.y$G3.y)
+
+mae(pred1_rf, testG3.x$G3.x)
+mae(pred2_rf, testG3.y$G3.y)
+```
+
+Random Forests
+
+Advantages: Good at handling complex, non-linear relationships Handle datasets with high dimensionality (many features) well Handle missing data well They are powerful and accurate They can be trained quickly. Since trees do not rely on one another, they can be trained in parallel. Disadvantages:
+
+
+
+
+#GradientBoosting regression
+
+```{r}
+library(h2o)
+#specify the cross-validation method
+ctrl <- trainControl(method = "cv", number = 5)
+h2o.init()
+#fit a regression model 
+model_cv_gbm.x <- train(G3.x ~., data = df_with_dummy, method = "gbm_h2o", trControl = ctrl)#math
+model_cv_gbm.y <- train(G3.y ~., data = df_with_dummy, method = "gbm_h2o", trControl = ctrl)#Portugees
+
+#Summary of k-fold CV               
+
+model_cv_gbm.x$resample
+model_cv_gbm.y$resample
+```
+
+
+
+```{r}
+
+m1_gbm <-  gbm(G3.x ~., data=train,distribution = "gaussian",cv.folds = 10,shrinkage = .01,n.minobsinnode = 10,n.trees = 500)   # Model 1 predecting final Math grade G3.x
+m2_gbm <-  gbm(G3.y ~., data=train,distribution = "gaussian",cv.folds = 10,shrinkage = .01,n.minobsinnode = 10,n.trees = 500)   # Model 2 predecting final Portugeese grade G3.y
+
+
+
+```
+
+```{r}
+pred1_gbm <- predict(m1_gbm, newdata = test)
+pred2_gbm <- predict(m2_gbm, newdata = test)
+
+rmse(pred1_gbm, testG3.x$G3.x)
+rmse(pred2_gbm, testG3.y$G3.y)
+
+Rsq(pred1_gbm, testG3.x$G3.x)
+Rsq(pred2_gbm, testG3.y$G3.y)
+
+mae(pred1_gbm, testG3.x$G3.x)
+mae(pred2_gbm, testG3.y$G3.y)
+```
+
+
+
+
